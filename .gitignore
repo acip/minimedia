@@ -1,0 +1,19 @@
+# generated test media and dev run output
+/testdata/media/
+/testdata/run/
+/testdata/run-real/
+/testdata/big/
+/testdata/run-big/
+
+# build output
+/server/bin/
+*.exe
+*.test
+*.out
+
+# local server config / data written next to a dev binary
+/server/config.yaml
+
+.idea/
+.vscode/
+/dist/

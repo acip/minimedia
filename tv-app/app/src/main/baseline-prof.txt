@@ -1,0 +1,6 @@
+# Baseline profile: the app's own code is compiled ahead of time on install,
+# instead of being interpreted and JIT-compiled while the user navigates (the
+# libraries ship their own profiles). On a Chromecast with Google TV this halves
+# the time to compose a new screen. Wildcards: the app is small.
+HSPLio/github/acip/minimedia/**;->**(**)**
+Lio/github/acip/minimedia/**;

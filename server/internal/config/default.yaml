@@ -1,0 +1,61 @@
+# MiniMedia configuration.
+#
+# Changes take effect after restarting the server. Media folders themselves are
+# rescanned automatically; you only need to restart after editing this file.
+# Unknown or misspelled keys are reported at startup.
+
+# Display name shown in the TV app
+name: "MiniMedia"
+
+# HTTP port the TV app connects to
+port: 8096
+
+# Answer UDP discovery broadcasts on port 7360 so the TV app finds the server
+discovery: true
+
+# Your media folders (required, at least one). MiniMedia never modifies them.
+#   type: movies | shows (a movies folder may also hold TV episodes named like S01E02)
+#   Backslash paths need single quotes; forward slashes (D:/Media/Movies) also work.
+#   For network shares UNC paths (\\nas\media\Shows) are the most reliable.
+libraries: []
+#  - name: Movies
+#    type: movies
+#    path: 'D:\Media\Movies'
+#  - name: Shows
+#    type: shows
+#    path: '\\nas\media\Shows'
+
+# Where the database, caches and thumbnails are stored.
+# Empty = Windows %ProgramData%\MiniMedia\data, Linux /var/lib/minimedia,
+# macOS ~/Library/Application Support/MiniMedia/data.
+# A relative path is relative to this file's folder.
+data_dir: ""
+
+# TMDB API key (v3) or read access token (v4) for posters and descriptions.
+# Empty = titles from file names and local images only.
+tmdb_api_key: ""
+metadata_language: en-US   # e.g. ro-RO; falls back to English if missing on TMDB
+
+subtitles:
+  preferred_languages: [en]       # ISO 639-1 codes, in order of priority, e.g. [ro, en]
+  fallback_encoding: windows-1250 # used when a subtitle file isn't valid UTF-8/UTF-16
+
+playback:
+  audio_convert: auto      # auto | always | never (convert audio the TV can't play, e.g. DTS)
+
+trickplay:                 # seek-bar thumbnails
+  enabled: true
+  interval_seconds: 10
+  width: 320
+  max_parallel_jobs: 1
+
+scan:
+  watch_folders: true      # pick up new files immediately (local drives)
+  rescan_every_hours: 24   # full rescan; this is what catches changes on network shares
+
+# Empty = look next to minimedia.exe, then on PATH
+ffmpeg: ""
+ffprobe: ""
+
+log_level: info            # debug | info | warn | error
+log_file: ""               # empty = console only; a path also writes there (rotated at 10 MB, 3 old files kept)
