@@ -2,6 +2,7 @@ package power
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -48,7 +49,8 @@ func TestKeeper(t *testing.T) {
 	}
 }
 
-// The real OS call works (Windows) and Run releases it on shutdown.
+// The real OS call works (or is refused, e.g. Linux without a desktop session)
+// and Run releases it on shutdown.
 func TestRun(t *testing.T) {
 	k := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,10 +58,10 @@ func TestRun(t *testing.T) {
 	go func() { k.Run(ctx); close(done) }()
 	end := k.Begin()
 	deadline := time.Now().Add(2 * time.Second)
-	for k.set != nil && !k.Awake() && time.Now().Before(deadline) {
+	for !k.unsupported() && !k.Awake() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if k.set != nil && !k.Awake() {
+	if !k.unsupported() && !k.Awake() {
 		t.Error("not awake while streaming")
 	}
 	end()
@@ -68,4 +70,24 @@ func TestRun(t *testing.T) {
 	if k.Awake() {
 		t.Error("still awake after shutdown")
 	}
+}
+
+// A refused request is reported once, not retried on every playback.
+func TestDeniedOnce(t *testing.T) {
+	calls := 0
+	k := &Keeper{log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: time.Now,
+		wake: make(chan struct{}, 1), set: func(bool) error { calls++; return errors.New("access denied") }}
+	k.apply(true)
+	k.apply(false)
+	k.apply(true)
+	if calls != 1 || k.Awake() || !k.unsupported() {
+		t.Errorf("calls = %d, awake = %v, unsupported = %v", calls, k.Awake(), k.unsupported())
+	}
+}
+
+// unsupported reports whether sleep can't be held off here.
+func (k *Keeper) unsupported() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.set == nil || k.denied
 }

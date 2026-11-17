@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -100,7 +101,7 @@ func TestValidateReportsAllErrors(t *testing.T) {
 libraries:
   - name: A
     type: films
-    path: 'Z:\does\not\exist'
+    path: 'MISSING'
   - name: a
     type: shows
     path: relative/path
@@ -111,7 +112,11 @@ playback:
   audio_convert: sometimes
 log_level: loud
 `
-	cfg, err := Parse(strings.NewReader(src))
+	missing := `Z:\does\not\exist`
+	if runtime.GOOS != "windows" {
+		missing = "/does/not/exist"
+	}
+	cfg, err := Parse(strings.NewReader(strings.Replace(src, "MISSING", missing, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,5 +201,27 @@ func TestFFmpegResolution(t *testing.T) {
 	}
 	if _, lookErr := exec.LookPath("ffprobe"); lookErr == nil && strings.Contains(err.Error(), "ffprobe:") {
 		t.Errorf("ffprobe is on PATH but was reported missing: %v", err)
+	}
+}
+
+func TestToolTooOld(t *testing.T) {
+	cases := []struct {
+		out  string
+		old  bool
+		want string
+	}{
+		{"ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021", true, "4.4.2-0ubuntu0.22.04.1"},
+		{"ffprobe version 5.0.1 Copyright", true, "5.0.1"},
+		{"ffmpeg version 5.1.6-0+deb12u1 Copyright", false, ""},
+		{"ffmpeg version 7.1-full_build-www.gyan.dev Copyright", false, ""},
+		{"ffmpeg version n6.1.1 Copyright", false, ""},
+		{"ffmpeg version N-118000-g1234abcd Copyright", false, ""},
+		{"ffmpeg version 10.0 Copyright", false, ""},
+	}
+	for _, c := range cases {
+		v, old := toolTooOld([]byte(c.out))
+		if old != c.old || v != c.want {
+			t.Errorf("%q: got %q %v, want %q %v", c.out, v, old, c.want, c.old)
+		}
 	}
 }

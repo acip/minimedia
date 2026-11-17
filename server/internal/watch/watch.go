@@ -3,8 +3,8 @@
 // On Windows it uses one ReadDirectoryChangesW subtree watch per library
 // root. fsnotify can only watch single folders there, and keeping a handle
 // open on every folder would stop the user from renaming or deleting those
-// folders while the server runs. Elsewhere it uses fsnotify with a watch per
-// folder (inotify/kqueue handles don't block renames).
+// folders while the server runs. On Linux it uses fsnotify (inotify) with a
+// watch per folder. On macOS it polls (see pollTree).
 package watch
 
 import (

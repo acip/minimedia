@@ -15,8 +15,9 @@ discovery: true
 
 # Your media folders (required, at least one). MiniMedia never modifies them.
 #   type: movies | shows (a movies folder may also hold TV episodes named like S01E02)
-#   Backslash paths need single quotes; forward slashes (D:/Media/Movies) also work.
-#   For network shares UNC paths (\\nas\media\Shows) are the most reliable.
+#   Windows: backslash paths need single quotes; forward slashes (D:/Media/Movies)
+#   also work. For network shares UNC paths (\\nas\media\Shows) are the most reliable.
+#   macOS / Linux: e.g. /Volumes/Media/Movies or /mnt/media/Shows (mount shares first).
 libraries: []
 #  - name: Movies
 #    type: movies
@@ -26,8 +27,9 @@ libraries: []
 #    path: '\\nas\media\Shows'
 
 # Where the database, caches and thumbnails are stored.
-# Empty = Windows %ProgramData%\MiniMedia\data, Linux /var/lib/minimedia,
-# macOS ~/Library/Application Support/MiniMedia/data.
+# Empty = Windows %ProgramData%\MiniMedia\data,
+# macOS ~/Library/Application Support/MiniMedia/data,
+# Linux ~/.local/share/minimedia (/var/lib/minimedia when run as root).
 # A relative path is relative to this file's folder.
 data_dir: ""
 

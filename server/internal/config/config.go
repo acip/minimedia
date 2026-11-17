@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -115,6 +116,11 @@ func Candidates() []string {
 			out = append(out, filepath.Join(home, "Library", "Application Support", "MiniMedia", FileName))
 		}
 	default:
+		if os.Geteuid() != 0 {
+			if dir, err := os.UserConfigDir(); err == nil { // $XDG_CONFIG_HOME or ~/.config
+				out = append(out, filepath.Join(dir, "minimedia", FileName))
+			}
+		}
 		out = append(out, filepath.Join("/etc", "minimedia", FileName))
 	}
 	return out
@@ -132,11 +138,23 @@ func Locate() (string, error) {
 	if len(cands) == 0 {
 		return "", fmt.Errorf("cannot determine executable location")
 	}
-	target := cands[0]
-	if err := os.WriteFile(target, defaultYAML, 0o644); err != nil {
-		return target, fmt.Errorf("%w; writing a default config to %s failed: %v", ErrNotFound, target, err)
+	// Write a default config to the first location that accepts it: next to
+	// the executable when that folder is writable (a folder of its own),
+	// otherwise the per-OS location (e.g. when installed in /usr/local/bin).
+	var firstErr error
+	for _, target := range cands {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
+			if err = os.WriteFile(target, defaultYAML, 0o644); err == nil {
+				return target, ErrNotFound
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else if firstErr == nil {
+			firstErr = err
+		}
 	}
-	return target, ErrNotFound
+	return cands[0], fmt.Errorf("%w; writing a default config to %s failed: %v", ErrNotFound, cands[0], firstErr)
 }
 
 // Load parses and validates a config file. All problems — unknown keys
@@ -402,30 +420,84 @@ func DefaultDataDir() string {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Application Support", "MiniMedia", "data")
 	default:
-		return "/var/lib/minimedia"
+		if os.Geteuid() == 0 {
+			return "/var/lib/minimedia"
+		}
+		if xdg := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(xdg) {
+			return filepath.Join(xdg, "minimedia")
+		}
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".local", "share", "minimedia")
 	}
 }
 
+// ffmpegInstallHint says how to get a suitable ffmpeg on this OS.
+func ffmpegInstallHint() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "install a full build, e.g. winget install Gyan.FFmpeg"
+	case "darwin":
+		return "install it with Homebrew: brew install ffmpeg"
+	default:
+		return "install your distribution's ffmpeg package (Debian 12+, Ubuntu 24.04+, Fedora) " +
+			"or a static build from https://johnvansickle.com/ffmpeg/"
+	}
+}
+
+// The oldest ffmpeg MiniMedia works with: 5.1 added -fps_mode (thumbnails)
+// and the noise bitstream filter's drop option (converted-audio segments).
+const minFFmpegMajor, minFFmpegMinor = 5, 1
+
+var toolVersionRe = regexp.MustCompile(`(?m)^ff\w+ version n?(\d+)\.(\d+)\S*`)
+
+// toolTooOld returns the version when -version output names a release older
+// than 5.1. Development builds ("N-12345-g…") are assumed to be recent.
+func toolTooOld(out []byte) (string, bool) {
+	m := toolVersionRe.FindSubmatch(out)
+	if m == nil {
+		return "", false
+	}
+	major, _ := strconv.Atoi(string(m[1]))
+	minor, _ := strconv.Atoi(string(m[2]))
+	if major > minFFmpegMajor || (major == minFFmpegMajor && minor >= minFFmpegMinor) {
+		return "", false
+	}
+	return strings.TrimPrefix(strings.Fields(string(m[0]))[2], "n"), true
+}
+
 // findTool resolves ffmpeg/ffprobe: the configured path, then next to the
-// executable, then PATH. The result must run "-version" successfully.
+// executable, then PATH. The result must run "-version" successfully and be
+// version 5.1 or newer.
 func findTool(name, configured string) (string, error) {
 	exeName := name
 	if runtime.GOOS == "windows" {
 		exeName += ".exe"
 	}
 	var tried []string
+	var tooOld error
 	try := func(p string) (string, bool) {
 		tried = append(tried, p)
 		cmd := exec.Command(p, "-version")
 		procutil.Prepare(cmd)
-		if out, err := cmd.Output(); err == nil && bytes.Contains(out, []byte("version")) {
-			return p, true
+		out, err := cmd.Output()
+		if err != nil || !bytes.Contains(out, []byte("version")) {
+			return "", false
 		}
-		return "", false
+		if v, old := toolTooOld(out); old {
+			if tooOld == nil {
+				tooOld = fmt.Errorf("%s at %s is version %s, but MiniMedia needs %d.%d or newer; %s",
+					name, p, v, minFFmpegMajor, minFFmpegMinor, ffmpegInstallHint())
+			}
+			return "", false
+		}
+		return p, true
 	}
 	if configured != "" {
 		if p, ok := try(configured); ok {
 			return p, nil
+		}
+		if tooOld != nil {
+			return "", tooOld
 		}
 		return "", fmt.Errorf("configured path %q does not run (%s -version failed)", configured, name)
 	}
@@ -442,7 +514,10 @@ func findTool(name, configured string) (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("%s not found next to the executable or on PATH (tried %s); install a full build, e.g. winget install Gyan.FFmpeg", name, strings.Join(tried, ", "))
+	if tooOld != nil {
+		return "", tooOld
+	}
+	return "", fmt.Errorf("%s not found next to the executable or on PATH (tried %s); %s", name, strings.Join(tried, ", "), ffmpegInstallHint())
 }
 
 func executableDir() (string, error) {

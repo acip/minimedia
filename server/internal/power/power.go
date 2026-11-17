@@ -1,4 +1,4 @@
-// Package power keeps the PC from going to sleep while the TV is playing
+// Package power keeps the computer from going to sleep while the TV is playing
 // (PLAN.md 7): from the first stream request until 2 minutes after the last
 // one, with any stream response still open counting as activity.
 package power
@@ -25,6 +25,7 @@ type Keeper struct {
 	active int       // stream responses in progress
 	last   time.Time // last activity
 	awake  bool      // what was last requested from the OS
+	denied bool      // the OS refused: don't try again
 }
 
 // New returns a Keeper using the OS's sleep control (a no-op where there is none).
@@ -63,7 +64,7 @@ func (k *Keeper) poke() {
 	}
 }
 
-// wanted reports whether the PC should stay awake now.
+// wanted reports whether the computer should stay awake now.
 func (k *Keeper) wanted() bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -98,6 +99,10 @@ func (k *Keeper) Run(ctx context.Context) {
 
 func (k *Keeper) apply(want bool) {
 	k.mu.Lock()
+	if k.denied {
+		k.mu.Unlock()
+		return
+	}
 	changed := want != k.awake
 	k.awake = want
 	k.mu.Unlock()
@@ -105,12 +110,23 @@ func (k *Keeper) apply(want bool) {
 		return
 	}
 	if err := k.set(want); err != nil {
-		k.log.Warn("cannot change the sleep setting", "awake", want, "err", err)
+		if !want {
+			k.log.Warn("cannot change the sleep setting", "awake", want, "err", err)
+			return
+		}
+		// Not allowed here (e.g. Linux without a logged-in desktop session):
+		// say so once and stop trying, instead of on every playback.
+		k.log.Warn("cannot keep the computer awake while streaming; set it not to sleep "+
+			"(or see the README) if it sleeps during playback", "err", err)
+		k.mu.Lock()
+		k.denied = true
+		k.awake = false
+		k.mu.Unlock()
 		return
 	}
 	if want {
-		k.log.Info("streaming: keeping the PC awake")
+		k.log.Info("streaming: keeping the computer awake")
 	} else {
-		k.log.Info("no streaming for a while: the PC may sleep again")
+		k.log.Info("no streaming for a while: the computer may sleep again")
 	}
 }

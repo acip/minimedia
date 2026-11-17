@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build !windows && !darwin && !linux
 
 package power
 
-// setAwake is not implemented outside Windows yet (caffeinate/systemd-inhibit later).
+// setAwake is not available on this OS: the computer's own sleep settings apply.
 var setAwake func(awake bool) error

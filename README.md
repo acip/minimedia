@@ -1,9 +1,10 @@
 # MiniMedia
 
-A small home media server for Windows and a Google TV app. Point the server at
-your movie and TV folders; the TV app finds it on your network and plays
-everything with a Netflix-style player: seek thumbnails, Skip Intro, next
-episode, audio and subtitle choices remembered per show, and "Ends at" times.
+A small home media server for Windows, macOS and Linux, and a Google TV app.
+Point the server at your movie and TV folders; the TV app finds it on your
+network and plays everything with a Netflix-style player: seek thumbnails,
+Skip Intro, next episode, audio and subtitle choices remembered per show, and
+"Ends at" times.
 
 - The server only **reads** your media folders. It never renames, moves,
   writes or deletes anything in them.
@@ -19,32 +20,60 @@ episode, audio and subtitle choices remembered per show, and "Ends at" times.
 
 ## 1. Install the server
 
+The server runs on Windows 10/11, macOS (Apple silicon or Intel) and 64-bit
+Linux (Intel/AMD or ARM, e.g. a Raspberry Pi 4 or 5). The steps are the same
+everywhere; where they differ, each system has its own note.
+
 ### What you need
-- Windows 10 or 11 (64-bit).
-- **ffmpeg** (a "full" build, which includes the HDR tone-mapping filter used
-  for thumbnails). Either:
-  - `winget install Gyan.FFmpeg`, or
-  - download `ffmpeg-release-full.7z` from <https://www.gyan.dev/ffmpeg/builds/>
-    and put `ffmpeg.exe` and `ffprobe.exe` next to `minimedia.exe`.
+**ffmpeg 5.1 or newer**, including ffprobe. MiniMedia looks for them next to
+the `minimedia` program, then at the paths in the config, then on `PATH`, and
+tells you at startup if the version is too old.
 
-  MiniMedia looks for them next to `minimedia.exe`, then at the paths in the
-  config, then on `PATH`.
+- **Windows:** `winget install Gyan.FFmpeg`, or download
+  `ffmpeg-release-full.7z` from <https://www.gyan.dev/ffmpeg/builds/> and put
+  `ffmpeg.exe` and `ffprobe.exe` next to `minimedia.exe`. Use a "full" build:
+  it includes the HDR tone-mapping filter used for thumbnails.
+- **macOS:** `brew install ffmpeg` (with [Homebrew](https://brew.sh)).
+- **Linux:** your distribution's package: `sudo apt install ffmpeg` on Debian
+  12+, Ubuntu 24.04+ and Raspberry Pi OS (Bookworm); `sudo dnf install ffmpeg`
+  on Fedora (from RPM Fusion). Older releases such as Ubuntu 22.04 ship ffmpeg
+  4.4, which is too old; use a static build from
+  <https://johnvansickle.com/ffmpeg/> there.
 
-### Get minimedia.exe
-Build it from this repository (needs Go 1.27+; the TV app part needs Android
-Studio's JDK and SDK):
+### Get the server
+Build it from this repository with Go 1.27+. Building the TV app as well needs
+Android Studio's JDK and SDK.
 
-```powershell
-.\build.ps1            # dist\minimedia.exe and dist\MiniMedia-tv.apk
-.\build.ps1 -SkipApp   # just the server
-```
+- **Windows:**
 
-Put `minimedia.exe` in a folder of its own, e.g. `C:\MiniMedia`.
+  ```powershell
+  .\build.ps1            # servers for every system, plus dist\MiniMedia-tv.apk
+  .\build.ps1 -SkipApp   # just the servers
+  ```
+
+  This makes `dist\minimedia.exe` and also `minimedia-macos-arm64` (Apple
+  silicon), `minimedia-macos-amd64` (Intel Macs), `minimedia-linux-amd64` and
+  `minimedia-linux-arm64`, so one Windows PC can build for every computer in the house.
+- **macOS and Linux:**
+
+  ```sh
+  ./build.sh             # dist/minimedia for this computer, plus dist/MiniMedia-tv.apk
+  ./build.sh --skip-app  # just the server
+  ```
+
+Put the program in a folder of its own, e.g. `C:\MiniMedia` or `~/MiniMedia`,
+and on macOS and Linux name it `minimedia`. If you copied it from another
+computer, make it runnable with `chmod +x minimedia`; on macOS also run
+`xattr -d com.apple.quarantine minimedia` if macOS refuses to open it.
 
 ### First run
-1. Run `minimedia.exe`. With no config it writes a default `config.yaml` next to
-   itself (if that folder is writable; otherwise in
-   `%ProgramData%\MiniMedia\`) and tells you where.
+1. Run it: `minimedia.exe` on Windows, `./minimedia` in a terminal on macOS
+   and Linux. With no config it writes a default `config.yaml` and tells you
+   where: next to the program if that folder is writable, otherwise
+   - Windows: `%ProgramData%\MiniMedia\config.yaml`
+   - macOS: `~/Library/Application Support/MiniMedia/config.yaml`
+   - Linux: `~/.config/minimedia/config.yaml` (`/etc/minimedia/config.yaml`
+     when run as root)
 2. Edit `config.yaml`: add your folders under `libraries`. Every setting is
    explained in the file. The minimum is:
 
@@ -52,49 +81,104 @@ Put `minimedia.exe` in a folder of its own, e.g. `C:\MiniMedia`.
    libraries:
      - name: Movies
        type: movies
-       path: 'D:\Media\Movies'
+       path: 'D:\Media\Movies'          # macOS: /Volumes/Media/Movies, Linux: /mnt/media/Movies
      - name: Shows
        type: shows
-       path: '\\nas\media\Shows'
+       path: '\\nas\media\Shows'        # a network share (Windows UNC path)
    tmdb_api_key: "your key"        # optional, free at themoviedb.org → Settings → API
    metadata_language: ro-RO        # optional
    subtitles:
      preferred_languages: [ro, en] # subtitle and audio languages, in order
    ```
 
-   Backslash paths need single quotes. Typos in setting names are reported at
-   startup with the line number.
-3. Run `minimedia.exe` again. It scans the folders (new files are picked up
-   while it runs), then fetches metadata and builds seek thumbnails in the
-   background.
+   On Windows, backslash paths need single quotes. On macOS and Linux, mount a
+   network share first (Finder → Go → Connect to Server, or `/etc/fstab`) and
+   use its folder. Typos in setting names are reported at startup with the
+   line number.
+3. Run it again. It scans the folders (new files are picked up while it runs),
+   then fetches metadata and builds seek thumbnails in the background.
 
 The server takes no command-line arguments; everything is in `config.yaml`.
 Config changes need a restart; media changes don't.
 
 ### Allow it through the firewall
-The first time it runs, Windows asks whether to allow MiniMedia on networks.
-Tick **Private networks** and allow. If you missed the prompt, run this in an
-administrator PowerShell (adjust the path):
+The TV connects on TCP port 8096 (the `port` setting) and finds the server
+through UDP port 7360.
 
-```powershell
-New-NetFirewallRule -DisplayName "MiniMedia" -Direction Inbound -Program "C:\MiniMedia\minimedia.exe" -Action Allow -Profile Private
-```
+- **Windows:** the first time it runs, Windows asks whether to allow MiniMedia
+  on networks. Tick **Private networks** and allow. If you missed the prompt,
+  run this in an administrator PowerShell (adjust the path):
 
-Your home network must be set to **Private** (Settings → Network & internet →
-your Wi-Fi or Ethernet → Network profile type). On a **Public** network the
-firewall blocks the TV, and MiniMedia logs a warning about it at startup.
+  ```powershell
+  New-NetFirewallRule -DisplayName "MiniMedia" -Direction Inbound -Program "C:\MiniMedia\minimedia.exe" -Action Allow -Profile Private
+  ```
 
-### Start it with Windows (optional)
-MiniMedia is a normal program, not a Windows service. To start it when you log
-in, put a shortcut to `minimedia.exe` in your Startup folder (press Win+R, type
-`shell:startup`). In the shortcut's properties you can set **Run: Minimized**.
-It keeps running while you're logged in, including when the screen is locked.
+  Your home network must be set to **Private** (Settings → Network & internet
+  → your Wi-Fi or Ethernet → Network profile type). On a **Public** network
+  the firewall blocks the TV, and MiniMedia logs a warning about it at startup.
+- **macOS:** if the firewall is on (System Settings → Network → Firewall),
+  macOS asks whether `minimedia` may accept incoming connections: choose
+  **Allow**. A rebuilt program counts as a new one, so it may ask again after
+  an update. If macOS asks for **Local Network** access, allow that too.
+- **Linux:** with ufw, `sudo ufw allow 8096/tcp && sudo ufw allow 7360/udp`;
+  with firewalld,
+  `sudo firewall-cmd --permanent --add-port=8096/tcp --add-port=7360/udp && sudo firewall-cmd --reload`.
+
+### Start it automatically (optional)
+- **Windows:** MiniMedia is a normal program, not a Windows service. To start
+  it when you log in, put a shortcut to `minimedia.exe` in your Startup folder
+  (press Win+R, type `shell:startup`). In the shortcut's properties you can set
+  **Run: Minimized**. It keeps running while you're logged in, including when
+  the screen is locked.
+- **macOS:** save this as `~/Library/LaunchAgents/minimedia.plist` (adjust the
+  path; launchd needs the full path, not `~`), then run
+  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/minimedia.plist`.
+  It starts when you log in.
+
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0">
+  <dict>
+    <key>Label</key><string>minimedia</string>
+    <key>ProgramArguments</key><array><string>/Users/you/MiniMedia/minimedia</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>StandardErrorPath</key><string>/Users/you/MiniMedia/minimedia.log</string>
+  </dict>
+  </plist>
+  ```
+- **Linux:** save this as `~/.config/systemd/user/minimedia.service` (adjust
+  the path; `%h` is your home folder):
+
+  ```ini
+  [Unit]
+  Description=MiniMedia
+  After=network-online.target
+
+  [Service]
+  ExecStart=%h/MiniMedia/minimedia
+  Restart=on-failure
+
+  [Install]
+  WantedBy=default.target
+  ```
+
+  Then `systemctl --user enable --now minimedia`. To start it at boot rather
+  than at login (for a computer nobody logs in to), also run
+  `sudo loginctl enable-linger $USER`. `journalctl --user -u minimedia` shows
+  its log.
 
 ### While it runs
-- The PC won't go to sleep while the TV is playing (from the first stream
-  request until 2 minutes after the last). The display may still turn off.
-- ffmpeg processes it starts are stopped when MiniMedia exits, even if it is
-  killed or crashes.
+- The computer won't go to sleep while the TV is playing (from the first
+  stream request until 2 minutes after the last). The display may still turn
+  off. On Linux this needs a desktop session; a headless server can't block
+  sleep (MiniMedia logs this once), so set it not to sleep.
+- ffmpeg processes it starts are stopped when MiniMedia exits. On Windows and
+  Linux that holds even if it is killed or crashes; on macOS a running ffmpeg
+  finishes its current job first.
+- New files show up within seconds. On macOS, where MiniMedia checks the
+  folders every 30 seconds instead of being notified, it takes up to half a
+  minute.
 - Close it with Ctrl+C (or by closing the window).
 - Set `log_file` in `config.yaml` to also keep a log file. It's rotated at
   10 MB, with 3 old files kept.
@@ -111,11 +195,11 @@ Android's `adb` tool (part of Android Studio, or "SDK Platform Tools" from
    and press OK seven times until it says you are a developer.
 2. **Settings → System → Developer options**: turn on **USB debugging**, or on
    newer devices (Chromecast with Google TV) **Wireless debugging**.
-3. On the PC, connect:
+3. On the computer, connect:
    - Wireless debugging: open **Wireless debugging → Pair device with pairing
      code** on the TV, then
 
-     ```powershell
+     ```sh
      adb pair 192.168.1.50:41234 123456   # address and code shown on the TV
      adb connect 192.168.1.50:37000       # the address on the Wireless debugging screen
      ```
@@ -127,7 +211,7 @@ Android's `adb` tool (part of Android Studio, or "SDK Platform Tools" from
    it ahead of time. Otherwise the TV does that on its own some time later
    (usually overnight), and until then the menus are less smooth.
 
-   ```powershell
+   ```sh
    adb install -r MiniMedia-tv.apk
    adb shell am start -n io.github.acip.minimedia/.MainActivity
    # wait about 10 seconds, then:
@@ -135,8 +219,8 @@ Android's `adb` tool (part of Android Studio, or "SDK Platform Tools" from
    ```
 
 Open **MiniMedia** from the TV's apps. It finds the server automatically. If
-it doesn't (see Troubleshooting), enter the PC's address, e.g.
-`192.168.1.20:8096`; `ipconfig` shows the PC's IPv4 address.
+it doesn't (see Troubleshooting), enter the computer's address and port,
+e.g. `192.168.1.20:8096`.
 
 **Frame rate:** for smooth 24 fps films, turn on the TV's **Match content
 frame rate** (Settings → Display & Sound → Advanced display settings). The app
@@ -185,12 +269,17 @@ in old encodings (Windows-1250, ISO-8859-2) are converted, and cedilla letters
 
 ## 4. Troubleshooting
 
-**The TV app doesn't find the server.** Check that the PC's network is
-**Private** and that the firewall allows MiniMedia (section 1). Discovery uses
-UDP port 7360, and the app connects on the configured `port` (8096 by
-default). If another program already uses that port, MiniMedia exits with an
-error; pick another `port`. A VPN on the PC is fine; on the TV, enter the
-address manually if discovery still fails.
+**The TV app doesn't find the server.** Check that the firewall allows
+MiniMedia and, on Windows, that the network is **Private** (section 1).
+Discovery uses UDP port 7360, and the app connects on the configured `port`
+(8096 by default). If another program already uses that port, MiniMedia exits
+with an error; pick another `port`. A VPN on the computer is fine; on the TV,
+enter the address manually if discovery still fails (`ipconfig` on Windows,
+`ipconfig getifaddr en0` on macOS or `hostname -I` on Linux shows it).
+
+**"ffmpeg … is version 4.4, but MiniMedia needs 5.1 or newer".** Install a
+newer ffmpeg (section 1), or point `ffmpeg` and `ffprobe` in `config.yaml` at
+one.
 
 **No sound, or "converted for this device".** The TV can't play that audio
 format itself, so the server converts it: to E-AC3 5.1, AC3 5.1 or AAC stereo,
@@ -210,35 +299,52 @@ audio, choose a text subtitle or an external `.srt`.
 **Wrong colours on a Dolby Vision (profile 5) file.** These need a Dolby
 Vision display; the app warns about it before playing.
 
-**A network share isn't scanned.** Use the UNC path (`\\nas\share\Movies`). If
-the share is unreachable when a scan runs, MiniMedia keeps the existing items
-instead of removing them. Changes on shares are picked up by the periodic
-rescan (`scan.rescan_every_hours`).
+**A network share isn't scanned.** On Windows use the UNC path
+(`\\nas\share\Movies`); on macOS and Linux use the folder where the share is
+mounted. If the share is unreachable when a scan runs, MiniMedia keeps the
+existing items instead of removing them. Changes on shares are picked up by
+the periodic rescan (`scan.rescan_every_hours`), and on macOS within 30
+seconds.
 
 **Where are the logs and the database?** The log goes to the console window
 (and to `log_file` if set). The database, thumbnails and caches are in
-`data_dir` (default `%ProgramData%\MiniMedia\data`). Deleting `data_dir`
-starts over (watched state and preferences included). Converted audio is
-cached there too: at most 20 GB, and unused files go after 6 hours.
+`data_dir`, by default:
+- Windows: `%ProgramData%\MiniMedia\data`
+- macOS: `~/Library/Application Support/MiniMedia/data`
+- Linux: `~/.local/share/minimedia` (`/var/lib/minimedia` when run as root)
 
-**Status at a glance:** `http://<pc>:8096/api/library/status` shows the scan,
-metadata, thumbnail and audio-conversion progress.
+Deleting `data_dir` starts over (watched state and preferences included).
+Converted audio is cached there too: at most 20 GB, and unused files go after
+6 hours.
+
+**Status at a glance:** `http://<computer>:8096/api/library/status` shows the
+scan, metadata, thumbnail and audio-conversion progress.
 
 ---
 
-## Development (Windows)
+## Development
 
-Requirements: Go 1.27+, ffmpeg/ffprobe (full build) on PATH, and for the app
-Android Studio (JDK 17, SDK 37).
+Requirements: Go 1.27+, ffmpeg/ffprobe 5.1+ (full build) on PATH, and for the
+app Android Studio (JDK 17, SDK 37). The helper scripts below are PowerShell
+and written for Windows; on macOS and Linux, `go test ./...` and `./build.sh`
+work as they are.
 
 ```powershell
 .\testdata\generate.ps1          # make the sample library in testdata\media (about 20 s)
 .\testdata\run-dev.ps1           # build testdata\run\minimedia.exe, write a dev config, run it
 ```
 
-The dev config uses port **8098** so it can run alongside Jellyfin (8096) and
-a WSL service that owns 8097. Edit `testdata\run\config.yaml` to point it at
-other folders.
+The dev config uses port **8098** so it can run alongside another media
+server on 8096. Edit `testdata\run\config.yaml` to point it at other folders.
+
+Platform-specific code lives in `_windows.go`, `_darwin.go`, `_linux.go` and
+`_unix.go` files (folder watching, sleep, child processes, long paths). To
+check every target from one machine:
+
+```sh
+cd server
+for os in windows darwin linux; do GOOS=$os go vet ./...; done
+```
 
 ```powershell
 cd server
@@ -273,7 +379,8 @@ reach the emulator).
 server/      Go module: cmd/minimedia (server), cmd/discover (test client), internal/...
 tv-app/      Android TV app (Kotlin, Compose for TV, Media3)
 testdata/    generate.ps1, run-dev.ps1, discover.ps1 (generated media is git-ignored)
-build.ps1    release build into dist\
+build.ps1    release build into dist\ (Windows; also cross-builds the macOS and Linux servers)
+build.sh     release build into dist/ (macOS and Linux)
 ```
 
 ## License

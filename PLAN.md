@@ -28,7 +28,7 @@ A minimal, Jellyfin-like home media system: a **Go server** that runs on Windows
 |---|---|
 | Clients | Google TV app only (runs on the Chromecast with Google TV). No phone app, no casting. |
 | Users | Single user, LAN only. **No authentication, no PIN.** |
-| Server language | Go, single binary, cross-platform; **Windows is a primary target**. |
+| Server language | Go, single binary, cross-platform: **Windows, macOS and Linux** are all supported targets (macOS/Linux added by the user's decision, 2026-11-17; see section 7.1). |
 | Configuration | **YAML config file only**, no CLI parameters. |
 | Discovery | TV app finds the server automatically via UDP broadcast; manual URL entry as a fallback. |
 | Playback | Direct play by default (ExoPlayer plays MKV/MP4 natively). Server-side **audio-only** conversion (video copied) for codecs the TV can't play (DTS, TrueHD). AV1 flagged unsupported in v1. |
@@ -43,9 +43,9 @@ A minimal, Jellyfin-like home media system: a **Go server** that runs on Windows
 
 ### 2.1 Location (first match wins)
 1. `config.yaml` in the same folder as the executable.
-2. Windows: `%ProgramData%\MiniMedia\config.yaml`. Linux: `/etc/minimedia/config.yaml`. macOS: `~/Library/Application Support/MiniMedia/config.yaml`.
+2. Windows: `%ProgramData%\MiniMedia\config.yaml`. macOS: `~/Library/Application Support/MiniMedia/config.yaml`. Linux: `~/.config/minimedia/config.yaml` (`$XDG_CONFIG_HOME`; skipped when run as root), then `/etc/minimedia/config.yaml`.
 
-If no file exists: write a fully commented default `config.yaml` next to the executable, log a message telling the user to set `libraries`, and exit with a non-zero code.
+If no file exists: write a fully commented default `config.yaml` next to the executable (or, if that folder isn't writable, at the first writable location above), log a message telling the user to set `libraries`, and exit with a non-zero code.
 
 ### 2.2 Schema and defaults
 ```yaml
@@ -63,7 +63,7 @@ libraries:                 # required, at least one
     type: shows
     path: '\\nas\media\Shows'    # UNC paths are the most reliable for network shares
 
-# default: Windows %ProgramData%\MiniMedia\data, Linux /var/lib/minimedia, macOS ~/Library/Application Support/MiniMedia/data
+# default: Windows %ProgramData%\MiniMedia\data, macOS ~/Library/Application Support/MiniMedia/data, Linux ~/.local/share/minimedia (/var/lib/minimedia as root)
 data_dir: ""
 
 tmdb_api_key: ""           # empty = filenames + local images only
@@ -329,10 +329,20 @@ Item summary shape (used in rows): `{ id, kind, title, year, showTitle?, season?
 - **Firewall**: README documents allowing it on the first-run prompt (**Private networks**), and the fallback command:
   `New-NetFirewallRule -DisplayName "MiniMedia" -Direction Inbound -Program "<path>\minimedia.exe" -Action Allow -Profile Private`.
   On startup, log a warning if the active network profile is Public (discovery will be blocked).
-- **Prevent sleep while streaming**: when any stream is active, call `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` from a dedicated goroutine locked to an OS thread (`runtime.LockOSThread`), and clear it 2 minutes after the last stream request. No-op on other OSes (optionally `caffeinate`/`systemd-inhibit` later).
+- **Prevent sleep while streaming**: when any stream is active, call `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` from a dedicated goroutine locked to an OS thread (`runtime.LockOSThread`), and clear it 2 minutes after the last stream request. macOS and Linux: see 7.1.
 - **Child processes**: put every ffmpeg/ffprobe process in a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so they die if the server exits or crashes. Use `CREATE_NO_WINDOW` so no console windows pop up. On Unix use process groups and kill the group.
 - **Paths**: long paths (`\\?\` prefix when > 240 chars), case-insensitive comparisons for de-duplication, Unicode file names (Romanian diacritics) tested.
 - Graceful shutdown on Ctrl+C and SIGTERM: stop jobs, flush DB.
+
+### 7.1 macOS and Linux (added 2026-11-17)
+
+- **Build**: the server is pure Go (no cgo), so `build.ps1` cross-builds `minimedia-macos-arm64/-amd64` and `minimedia-linux-amd64/-arm64` next to the Windows exe; `build.sh` builds for the current machine on macOS/Linux.
+- **ffmpeg**: 5.1 or newer is required everywhere (`-fps_mode`, `noise=drop`); the version is checked at startup with an OS-specific install hint (Homebrew; Debian 12+/Ubuntu 24.04+ packages or a static build). Verified on Ubuntu 24.04 with ffmpeg 6.1.
+- **Sleep**: a helper process holds off sleep while streaming: `caffeinate -i` on macOS, `systemd-inhibit --what=sleep:idle --mode=block` on Linux. Its stdin is a pipe from the server, so it exits if the server dies. Linux only allows this in a logged-in session; when refused, the server logs one warning and stops trying.
+- **Folder watching**: Linux uses fsnotify (inotify, a watch per folder). macOS polls every 30 s (sizes and modification times of the tree), because kqueue needs an open file per watched file and network mounts send no events.
+- **Child processes**: process groups as before; on Linux `Pdeathsig=SIGKILL` also kills them if the server is killed. macOS has no equivalent, so a running ffmpeg finishes its job.
+- **Start automatically**: README examples for a LaunchAgent (macOS) and a systemd user unit (Linux). Neither is a system service.
+- **Firewall**: README covers the macOS application firewall prompt and ufw/firewalld rules; no startup check.
 
 ---
 
