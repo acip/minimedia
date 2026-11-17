@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/acip/minimedia/server/internal/config"
+	"github.com/acip/minimedia/server/internal/ffutil"
 	"github.com/acip/minimedia/server/internal/library"
 	"github.com/acip/minimedia/server/internal/store"
 )
@@ -137,6 +138,11 @@ func TestSheetsMatchDurationAndKeyframes(t *testing.T) {
 			t.Fatalf("%s: %v", title, err)
 		}
 		want := int(math.Ceil(float64(it.RuntimeMs) / 10000))
+		// Some ffmpeg versions make the file (audio) a few ms longer than its
+		// video, e.g. 180.02 s for 3 minutes: there is no frame for 3:00 then.
+		if idx.Count == want-1 && it.RuntimeMs%10000 < 500 {
+			want--
+		}
 		if idx.Count != want || idx.Sheets != (want+24)/25 || idx.TileWidth != 320 || idx.TileHeight != 180 {
 			t.Errorf("%s: index %+v, want %d thumbnails", title, idx, want)
 		}
@@ -187,6 +193,9 @@ func TestSheetsMatchDurationAndKeyframes(t *testing.T) {
 
 func TestHDRThumbnailsAreToneMapped(t *testing.T) {
 	st, dir, ffmpeg, items := setup(t)
+	if !ffutil.HasFilter(ffmpeg, "zscale") {
+		t.Skip("this ffmpeg has no zscale filter, so HDR thumbnails can't be tone-mapped")
+	}
 	g := New(st, dir, ffmpeg, Options{Enabled: true, IntervalSeconds: 10, Width: 320, MaxParallelJobs: 1}, quiet())
 	it := items["HDR Sample"]
 	idx, err := g.Generate(context.Background(), it)

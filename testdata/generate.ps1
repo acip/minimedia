@@ -159,6 +159,12 @@ if (Should-Write $out) {
     # = 100 nits), so the file looks washed out unless players and thumbnail
     # code tone-map it, like real HDR content. Tagging alone would not do that.
     $toPQ = 'zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t=smpte2084:m=bt2020nc:p=bt2020:r=tv:npl=100,format=yuv420p10le'
+    if (-not ((& $Ffmpeg -hide_banner -filters 2>$null) -match '\szscale\s')) {
+        # e.g. Homebrew's ffmpeg: tag the file as HDR without converting the
+        # pixels. The tone-mapping tests skip themselves with such an ffmpeg.
+        Write-Warning 'ffmpeg has no zscale filter: HDR Sample is tagged as HDR but not converted to PQ'
+        $toPQ = 'format=yuv420p10le'
+    }
     Invoke-Ffmpeg (@() + (Video 30) + (Sine 30) + @(
         '-vf', $toPQ,
         '-c:v', 'libx265', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le', '-x265-params', $x265,

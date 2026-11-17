@@ -33,7 +33,12 @@ tells you at startup if the version is too old.
   `ffmpeg-release-full.7z` from <https://www.gyan.dev/ffmpeg/builds/> and put
   `ffmpeg.exe` and `ffprobe.exe` next to `minimedia.exe`. Use a "full" build:
   it includes the HDR tone-mapping filter used for thumbnails.
-- **macOS:** `brew install ffmpeg` (with [Homebrew](https://brew.sh)).
+- **macOS:** `brew install ffmpeg` (with [Homebrew](https://brew.sh)). That
+  build has no HDR tone-mapping filter (zscale), so seek thumbnails of HDR
+  films look washed out; playback is unaffected. For tone-mapped thumbnails,
+  install an ffmpeg built with zimg instead, e.g. from the
+  [homebrew-ffmpeg tap](https://github.com/homebrew-ffmpeg/homebrew-ffmpeg):
+  `brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-zimg`.
 - **Linux:** your distribution's package: `sudo apt install ffmpeg` on Debian
   12+, Ubuntu 24.04+ and Raspberry Pi OS (Bookworm); `sudo dnf install ffmpeg`
   on Fedora (from RPM Fusion). Older releases such as Ubuntu 22.04 ship ffmpeg
