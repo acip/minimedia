@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Release signing key: from tv-app/keystore.properties (local, git-ignored) or
+// from MINIMEDIA_KEYSTORE* environment variables (GitHub Actions). Without
+// either, release builds are signed with the debug key.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signing(prop: String, env: String): String? = keystoreProps.getProperty(prop) ?: System.getenv(env)?.ifEmpty { null }
+val releaseStore = signing("storeFile", "MINIMEDIA_KEYSTORE")
+
+// Version: -PappVersion=1.2.3 (release builds from a v1.2.3 tag), else "dev".
+// versionCode 1.2.3 -> 1002003, so every release installs over the last one.
+val appVersion = (findProperty("appVersion") as String?) ?: "dev"
+val appVersionCode = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(appVersion)?.destructured
+    ?.let { (major, minor, patch) -> major.toInt() * 1_000_000 + minor.toInt() * 1_000 + patch.toInt() } ?: 1
 
 android {
     namespace = "io.github.acip.minimedia"
@@ -12,8 +30,19 @@ android {
         applicationId = "io.github.acip.minimedia"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.2.0"
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
+
+    signingConfigs {
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = signing("storePassword", "MINIMEDIA_KEYSTORE_PASSWORD")
+                keyAlias = signing("keyAlias", "MINIMEDIA_KEY_ALIAS")
+                keyPassword = signing("keyPassword", "MINIMEDIA_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -22,8 +51,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key, so it installs over (and updates) a debug build with adb.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseStore != null) "release" else "debug")
         }
     }
 

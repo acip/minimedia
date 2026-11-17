@@ -43,6 +43,9 @@ func (r *recorder) waitFor(t *testing.T, want string) {
 }
 
 func TestWatchNestedChangesAndRenames(t *testing.T) {
+	old := pollEvery // macOS polls; check often enough for this test
+	pollEvery = 50 * time.Millisecond
+	defer func() { pollEvery = old }()
 	root := t.TempDir()
 	movie := filepath.Join(root, "Movie (2020)")
 	if err := os.MkdirAll(filepath.Join(movie, "Subs"), 0o755); err != nil {

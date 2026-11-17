@@ -41,8 +41,24 @@ tells you at startup if the version is too old.
   <https://johnvansickle.com/ffmpeg/> there.
 
 ### Get the server
-Build it from this repository with Go 1.27+. Building the TV app as well needs
-Android Studio's JDK and SDK.
+Download it from the [latest release](https://github.com/acip/minimedia/releases/latest):
+
+| Computer | File |
+|---|---|
+| Windows 10/11 | `minimedia-windows-amd64.exe` (rename it to `minimedia.exe`) |
+| Mac with Apple silicon (M1 and later) | `minimedia-macos-arm64.tar.gz` |
+| Intel Mac | `minimedia-macos-amd64.tar.gz` |
+| Linux PC or server | `minimedia-linux-amd64.tar.gz` |
+| Raspberry Pi 4/5 or other 64-bit ARM Linux | `minimedia-linux-arm64.tar.gz` |
+
+Unpack the macOS and Linux files with `tar -xzf minimedia-*.tar.gz`. The
+programs aren't signed with a paid certificate, so on first run Windows may
+say "Windows protected your PC" (click **More info**, then **Run anyway**),
+and macOS may refuse to open it (run `xattr -d com.apple.quarantine minimedia`
+in its folder).
+
+Or build it yourself with Go 1.27+. Building the TV app as well needs Android
+Studio's JDK and SDK.
 
 - **Windows:**
 
@@ -62,9 +78,8 @@ Android Studio's JDK and SDK.
   ```
 
 Put the program in a folder of its own, e.g. `C:\MiniMedia` or `~/MiniMedia`,
-and on macOS and Linux name it `minimedia`. If you copied it from another
-computer, make it runnable with `chmod +x minimedia`; on macOS also run
-`xattr -d com.apple.quarantine minimedia` if macOS refuses to open it.
+and on macOS and Linux name it `minimedia`. If you copied a build from another
+computer, make it runnable with `chmod +x minimedia`.
 
 ### First run
 1. Run it: `minimedia.exe` on Windows, `./minimedia` in a terminal on macOS
@@ -187,9 +202,12 @@ through UDP port 7360.
 
 ## 2. Install the TV app (Google TV / Android TV)
 
-The app isn't on the Play Store; you install `MiniMedia-tv.apk` once with
-Android's `adb` tool (part of Android Studio, or "SDK Platform Tools" from
-<https://developer.android.com/tools/releases/platform-tools>).
+The app isn't on the Play Store. Download `MiniMedia-tv.apk` from the
+[latest release](https://github.com/acip/minimedia/releases/latest) (or build
+it, section 1) and install it once with Android's `adb` tool (part of Android
+Studio, or "SDK Platform Tools" from
+<https://developer.android.com/tools/releases/platform-tools>). The TV needs
+Google TV or Android TV 12 or newer.
 
 1. On the TV: **Settings → System → About**, scroll to **Android TV OS build**
    and press OK seven times until it says you are a developer.
@@ -373,11 +391,36 @@ is buffered paused (`ui/player/Preload.kt`), so Play just starts it.
 In the Android TV emulator, enter `10.0.2.2:8098` (UDP discovery replies don't
 reach the emulator).
 
+### Releases
+
+Pushing a tag like `v0.2.0` runs `.github/workflows/release.yml`: the tests on
+Windows, macOS and Linux, then the servers for every system and the TV app,
+published as a GitHub Release. The tag sets the version of both (the app's
+versionCode is `major×1000000 + minor×1000 + patch`). Every push to `main`
+runs the same tests (`ci.yml`).
+
+The app in releases is signed with the project's release key, kept in the
+repository secrets `MINIMEDIA_KEYSTORE_BASE64` and
+`MINIMEDIA_KEYSTORE_PASSWORD`. A local build uses that key too when
+`tv-app/keystore.properties` exists (git-ignored):
+
+```properties
+storeFile=C:/path/to/minimedia-release.jks
+storePassword=...
+keyAlias=minimedia
+keyPassword=...
+```
+
+Without it, release builds are signed with your debug key, and the TV refuses
+to install them over a release (and the other way round) until the app is
+uninstalled.
+
 ### Layout
 
 ```
 server/      Go module: cmd/minimedia (server), cmd/discover (test client), internal/...
 tv-app/      Android TV app (Kotlin, Compose for TV, Media3)
+.github/     CI (tests on Windows, macOS, Linux) and the release workflow
 testdata/    generate.ps1, run-dev.ps1, discover.ps1 (generated media is git-ignored)
 build.ps1    release build into dist\ (Windows; also cross-builds the macOS and Linux servers)
 build.sh     release build into dist/ (macOS and Linux)

@@ -1,0 +1,94 @@
+# Publishes a GitHub Release when a version tag is pushed:
+#   git tag v0.2.0 && git push origin v0.2.0
+# The tests (ci.yml) must pass first. The TV app is signed with the release key
+# from the repository secrets MINIMEDIA_KEYSTORE_BASE64 and
+# MINIMEDIA_KEYSTORE_PASSWORD (alias "minimedia").
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Version from the tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "VERSION=${tag#v}" >> "$GITHUB_ENV"
+
+      - name: Build the servers
+        working-directory: server
+        run: |
+          mkdir -p ../dist ../stage
+          build() { # goos goarch output
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath \
+              -ldflags "-s -w -X github.com/acip/minimedia/server/internal/version.Version=$TAG" \
+              -o "$3" ./cmd/minimedia
+          }
+          build windows amd64 ../dist/minimedia-windows-amd64.exe
+          # macOS and Linux: a .tar.gz keeps the name "minimedia" and the executable bit.
+          for t in darwin/arm64/macos-arm64 darwin/amd64/macos-amd64 linux/amd64/linux-amd64 linux/arm64/linux-arm64; do
+            IFS=/ read -r goos goarch name <<< "$t"
+            rm -rf ../stage/* && build "$goos" "$goarch" ../stage/minimedia
+            cp ../LICENSE ../stage/
+            tar -czf "../dist/minimedia-$name.tar.gz" -C ../stage minimedia LICENSE
+          done
+
+      - name: Build the TV app (release key)
+        working-directory: tv-app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MINIMEDIA_KEYSTORE_BASE64 }}
+          MINIMEDIA_KEYSTORE_PASSWORD: ${{ secrets.MINIMEDIA_KEYSTORE_PASSWORD }}
+          MINIMEDIA_KEY_PASSWORD: ${{ secrets.MINIMEDIA_KEYSTORE_PASSWORD }}
+          MINIMEDIA_KEY_ALIAS: minimedia
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$MINIMEDIA_KEYSTORE_PASSWORD" ]; then
+            echo "::error::The release signing secrets are missing; not publishing a debug-signed app."
+            exit 1
+          fi
+          export MINIMEDIA_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$MINIMEDIA_KEYSTORE"
+          ./gradlew --no-daemon assembleRelease -PappVersion="$VERSION"
+          rm -f "$MINIMEDIA_KEYSTORE"
+          cp app/build/outputs/apk/release/app-release.apk ../dist/MiniMedia-tv.apk
+          # Refuse to publish an app that isn't signed with the release key.
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --print-certs ../dist/MiniMedia-tv.apk > "$RUNNER_TEMP/certs.txt"
+          cat "$RUNNER_TEMP/certs.txt"
+          grep -q "DN: CN=MiniMedia" "$RUNNER_TEMP/certs.txt"
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sed "s/{{VERSION}}/$TAG/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --title "MiniMedia $TAG" --notes-file "$RUNNER_TEMP/notes.md" dist/*

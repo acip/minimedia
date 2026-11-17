@@ -1,0 +1,66 @@
+# Tests the server on Windows, macOS and Linux and builds the TV app.
+# Runs on every push and pull request, and before every release (release.yml).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg-full -y --no-progress
+
+      - name: Generate test media
+        shell: pwsh
+        run: ./testdata/generate.ps1
+
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: Test
+        working-directory: server
+        run: go test ./...
+
+  app:
+    name: TV app build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Build and unit-test
+        working-directory: tv-app
+        run: ./gradlew --no-daemon assembleRelease testDebugUnitTest

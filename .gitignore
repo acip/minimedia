@@ -17,3 +17,8 @@
 .idea/
 .vscode/
 /dist/
+
+# signing keys (never commit)
+*.jks
+*.keystore
+keystore.properties
