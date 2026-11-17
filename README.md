@@ -369,6 +369,10 @@ cd server
 for os in windows darwin linux; do GOOS=$os go vet ./...; done
 ```
 
+The Windows program icon is drawn by `server/tools/winicon` and linked in from
+`server/cmd/minimedia/rsrc_windows_amd64.syso`; after changing the drawing, run
+`go run ./tools/winicon` in `server`.
+
 ```powershell
 cd server
 go test ./...                    # unit tests; several also use testdata\media when present
